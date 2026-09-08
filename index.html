@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>I LOVE YOU ❤️</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            background: #0d0d0d;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+            font-family: 'Georgia', serif;
+        }
+        canvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+            background: radial-gradient(ellipse at center, #1a0a0a 0%, #0a0505 100%);
+            cursor: default;
+        }
+        .overlay {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+            text-align: center;
+            z-index: 10;
+        }
+        .overlay h1 {
+            font-size: clamp(2rem, 8vw, 6rem);
+            color: #ff3366;
+            text-shadow:
+                0 0 20px rgba(255, 51, 102, 0.6),
+                0 0 60px rgba(255, 51, 102, 0.3),
+                0 0 100px rgba(255, 51, 102, 0.15);
+            letter-spacing: 0.05em;
+            animation: pulse 2s ease-in-out infinite;
+        }
+        .overlay .heart-emoji {
+            display: inline-block;
+            animation: float 3s ease-in-out infinite;
+        }
+        @keyframes pulse {
+            0%,
+            100% {
+                transform: scale(1);
+                opacity: 0.9;
+            }
+            50% {
+                transform: scale(1.04);
+                opacity: 1;
+            }
+        }
+        @keyframes float {
+            0%,
+            100% {
+                transform: translateY(0);
+            }
+            50% {
+                transform: translateY(-12px);
+            }
+        }
+        @media (max-width: 600px) {
+            .overlay h1 {
+                font-size: 2.4rem;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="overlay">
+        <h1>
+        Hii Noobri
+            <span class="heart-emoji">❤️</span>
+        </h1>
+    </div>
+
+    <canvas id="canvas"></canvas>
+
+    <script>
+        (function() {
+            const canvas = document.getElementById('canvas');
+            const ctx = canvas.getContext('2d');
+
+            let width, height;
+
+            function resize() {
+                width = canvas.width = window.innerWidth;
+                height = canvas.height = window.innerHeight;
+            }
+            window.addEventListener('resize', resize);
+            resize();
+
+            // ─── Helpers ────────────────────────────────────────────────
+            const rand = (min = 0, max = 1) => Math.random() * (max - min) + min;
+            const lerp = (a, b, t) => a + (b - a) * t;
+
+            // ─── Heart shape (parametric) ──────────────────────────────
+            function heartX(t, scale = 1) {
+                // t in [0, 2π]
+                return scale * (16 * Math.pow(Math.sin(t), 3));
+            }
+
+            function heartY(t, scale = 1) {
+                return -scale * (13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t));
+            }
+
+            // ─── Configuration ──────────────────────────────────────────
+            const HEART_POINTS_COUNT = 320;
+            const TRACE_COUNT = 40;
+            const SCALE = 9.5;
+            const BASE_SPEED = 0.3;
+            const FORCE_RANGE = 0.6;
+
+            // ─── Particle class ─────────────────────────────────────────
+            class Particle {
+                constructor(index) {
+                    // target position on heart
+                    const t = (index / HEART_POINTS_COUNT) * Math.PI * 2;
+                    const scale = SCALE * Math.min(width, height) / 100;
+                    this.tx = heartX(t, scale) + width / 2;
+                    this.ty = heartY(t, scale) + height / 2;
+
+                    // start at random position
+                    this.x = rand(0, width);
+                    this.y = rand(0, height);
+
+                    this.vx = 0;
+                    this.vy = 0;
+                    this.R = rand(1.2, 2.8);
+                    this.speed = rand(0.8, 2.0);
+                    this.force = rand(0.35, 0.95);
+                    this.phase = rand(0, Math.PI * 2);
+
+                    // hsl color – warm red/pink range
+                    const hue = rand(340, 370) % 360;
+                    const sat = rand(75, 100);
+                    const lig = rand(50, 75);
+                    this.hue = hue;
+                    this.sat = sat;
+                    this.lig = lig;
+
+                    // trace trail
+                    this.trace = [];
+                    for (let k = 0; k < TRACE_COUNT; k++) {
+                        this.trace.push({ x: this.x, y: this.y });
+                    }
+                }
+
+                update(time, traceK = 0.4, dt = 0.016) {
+                    // direction to target
+                    const dx = this.tx - this.x;
+                    const dy = this.ty - this.y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+
+                    if (dist > 0.1) {
+                        // elastic / magnetic force toward target
+                        const forceMag = this.force * 0.08;
+                        const fx = (dx / dist) * forceMag * this.speed;
+                        const fy = (dy / dist) * forceMag * this.speed;
+
+                        this.vx += fx * dt * 60;
+                        this.vy += fy * dt * 60;
+                    }
+
+                    // damping
+                    this.vx *= 0.94;
+                    this.vy *= 0.94;
+
+                    // small orbital wiggle
+                    const wiggle = 0.12;
+                    this.vx += Math.sin(time * 1.3 + this.phase) * wiggle * dt * 30;
+                    this.vy += Math.cos(time * 1.7 + this.phase * 0.7) * wiggle * dt * 30;
+
+                    // move
+                    this.x += this.vx * dt * 60;
+                    this.y += this.vy * dt * 60;
+
+                    // trace – shift and add new position
+                    for (let k = this.trace.length - 1; k > 0; k--) {
+                        this.trace[k].x = lerp(this.trace[k].x, this.trace[k - 1].x, traceK);
+                        this.trace[k].y = lerp(this.trace[k].y, this.trace[k - 1].y, traceK);
+                    }
+                    this.trace[0].x = this.x;
+                    this.trace[0].y = this.y;
+                }
+
+                draw(ctx, time) {
+                    // draw trace
+                    for (let k = 1; k < this.trace.length; k++) {
+                        const alpha = (k / this.trace.length) * 0.35;
+                        const size = this.R * (0.3 + 0.7 * (k / this.trace.length));
+                        ctx.beginPath();
+                        ctx.arc(this.trace[k].x, this.trace[k].y, size * 0.4, 0, Math.PI * 2);
+                        ctx.fillStyle = `hsla(${this.hue}, ${this.sat}%, ${this.lig + 10}%, ${alpha})`;
+                        ctx.fill();
+                    }
+
+                    // main particle with glow
+                    const glow = 1.0 + 0.15 * Math.sin(time * 1.8 + this.phase);
+                    const r = this.R * glow;
+
+                    // outer glow
+                    const grad = ctx.createRadialGradient(
+                        this.x, this.y, 0,
+                        this.x, this.y, r * 4
+                    );
+                    grad.addColorStop(0, `hsla(${this.hue}, ${this.sat}%, ${this.lig + 20}%, 0.5)`);
+                    grad.addColorStop(0.4, `hsla(${this.hue}, ${this.sat}%, ${this.lig}%, 0.2)`);
+                    grad.addColorStop(1, `hsla(${this.hue}, ${this.sat}%, ${this.lig}%, 0)`);
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, r * 4, 0, Math.PI * 2);
+                    ctx.fillStyle = grad;
+                    ctx.fill();
+
+                    // core
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, r, 0, Math.PI * 2);
+                    ctx.fillStyle = `hsla(${this.hue}, ${this.sat}%, ${this.lig + 15}%, 0.95)`;
+                    ctx.fill();
+
+                    // bright center
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, r * 0.3, 0, Math.PI * 2);
+                    ctx.fillStyle = `hsla(${this.hue}, ${Math.min(100, this.sat + 10)}%, ${Math.min(95, this.lig + 30)}%, 0.9)`;
+                    ctx.fill();
+                }
+            }
+
+            // ─── Create particles ──────────────────────────────────────
+            let particles = [];
+            function initParticles() {
+                particles = [];
+                for (let i = 0; i < HEART_POINTS_COUNT; i++) {
+                    particles.push(new Particle(i));
+                }
+            }
+            initParticles();
+
+            // ─── Resize handler ────────────────────────────────────────
+            function onResize() {
+                resize();
+                // re-target particles to new heart size
+                const scale = SCALE * Math.min(width, height) / 100;
+                for (let i = 0; i < particles.length; i++) {
+                    const t = (i / particles.length) * Math.PI * 2;
+                    particles[i].tx = heartX(t, scale) + width / 2;
+                    particles[i].ty = heartY(t, scale) + height / 2;
+                }
+            }
+            window.addEventListener('resize', onResize);
+
+            // ─── Animation loop ────────────────────────────────────────
+            let startTime = performance.now();
+
+            function animate() {
+                const now = performance.now();
+                const time = (now - startTime) / 1000;
+                const dt = 1 / 60;
+
+                // clear with trailing fade
+                ctx.fillStyle = 'rgba(10, 5, 5, 0.25)';
+                ctx.fillRect(0, 0, width, height);
+
+                // subtle background sparkles
+                ctx.fillStyle = 'rgba(255, 200, 220, 0.015)';
+                for (let i = 0; i < 6; i++) {
+                    const sx = (Math.sin(time * 0.2 + i * 1.7) * 0.5 + 0.5) * width;
+                    const sy = (Math.cos(time * 0.25 + i * 2.1) * 0.5 + 0.5) * height;
+                    const sr = rand(40, 120);
+                    const grad = ctx.createRadialGradient(sx, sy, 0, sx, sy, sr);
+                    grad.addColorStop(0, 'rgba(255, 100, 150, 0.04)');
+                    grad.addColorStop(1, 'rgba(255, 100, 150, 0)');
+                    ctx.beginPath();
+                    ctx.arc(sx, sy, sr, 0, Math.PI * 2);
+                    ctx.fillStyle = grad;
+                    ctx.fill();
+                }
+
+                // update & draw particles
+                const traceK = 0.35 + 0.1 * Math.sin(time * 0.3);
+                for (const p of particles) {
+                    p.update(time, traceK, dt);
+                    p.draw(ctx, time);
+                }
+
+                // extra heart glow pulse
+                const pulse = 0.3 + 0.15 * Math.sin(time * 0.6);
+                const cx = width / 2;
+                const cy = height / 2;
+                const pulseR = Math.min(width, height) * 0.28 * (1 + 0.06 * Math.sin(time * 0.5));
+                const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, pulseR);
+                grad.addColorStop(0, `rgba(255, 50, 80, ${pulse * 0.04})`);
+                grad.addColorStop(0.5, `rgba(255, 30, 60, ${pulse * 0.02})`);
+                grad.addColorStop(1, 'rgba(255, 30, 60, 0)');
+                ctx.beginPath();
+                ctx.arc(cx, cy, pulseR, 0, Math.PI * 2);
+                ctx.fillStyle = grad;
+                ctx.fill();
+
+                requestAnimationFrame(animate);
+            }
+
+            animate();
+
+            // ─── Click to reset / burst ────────────────────────────────
+            canvas.addEventListener('click', () => {
+                for (const p of particles) {
+                    p.x = rand(0, width);
+                    p.y = rand(0, height);
+                    p.vx = rand(-8, 8);
+                    p.vy = rand(-8, 8);
+                    // reset trace
+                    for (let k = 0; k < p.trace.length; k++) {
+                        p.trace[k].x = p.x;
+                        p.trace[k].y = p.y;
+                    }
+                }
+            });
+
+            // ─── Keyboard: 'r' to reset ──────────────────────────────
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'r' || e.key === 'R') {
+                    for (const p of particles) {
+                        p.x = rand(0, width);
+                        p.y = rand(0, height);
+                        p.vx = rand(-6, 6);
+                        p.vy = rand(-6, 6);
+                        for (let k = 0; k < p.trace.length; k++) {
+                            p.trace[k].x = p.x;
+                            p.trace[k].y = p.y;
+                        }
+                    }
+                }
+            });
+
+            console.log('❤️  I LOVE YOU  ❤️');
+            console.log('Click anywhere to burst the heart!');
+            console.log('Press "r" to reset particles.');
+        })();
+    </script>
+</body>
+</html>
